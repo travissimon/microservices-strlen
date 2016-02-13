@@ -10,7 +10,7 @@ import (
 	"github.com/travissimon/remnant/client"
 )
 
-func swaggerHandler(w http.ResponseWriter, r *http.Request) {
+func swaggerHandler(w http.ResponseWriter, r *http.Request, logger client.Logger) {
 	respJson := `{
     "swagger": "2.0",
     "info": {
@@ -89,17 +89,16 @@ func swaggerHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, respJson)
 }
 
-func strLenHandler(w http.ResponseWriter, r *http.Request) {
-	cl, err := client.NewRemnantClient("http://localhost:7777/", r)
-	defer cl.EndSpan()
+const (
+	SERVICE_PATH = "/v1/strlen/"
+)
 
-	fmt.Printf("%s request: %s\n", time.Now().UTC().Format(time.RFC3339), r.URL.Path)
-	if err != nil {
-		fmt.Printf("Error: %s\n", err.Error())
-		return
-	}
-	s := string(r.URL.Path[len("/v1/strlen/"):])
-	fmt.Fprintf(w, "%d", utf8.RuneCountInString(s))
+func strLenHandler(w http.ResponseWriter, r *http.Request, logger client.Logger) {
+	logger.LogDebug("request: " + r.URL.Path)
+	s := string(r.URL.Path[len(SERVICE_PATH):])
+	len := utf8.RuneCountInString(s)
+	logger.LogInfo(fmt.Sprintf("Str len: %d", len))
+	fmt.Fprintf(w, "%d", len)
 }
 
 func healthzHandler(w http.ResponseWriter, r *http.Request) {
@@ -111,10 +110,11 @@ func main() {
 	var port = flag.String("port", "8080", "Define what TCP port to bind to")
 	flag.Parse()
 
-	http.HandleFunc("/", swaggerHandler)
-	http.HandleFunc("/swagger.json", swaggerHandler)
-	http.HandleFunc("/v1/strlen/", strLenHandler)
+	remnantUrl := "http://localhost:7777/"
+	http.HandleFunc(SERVICE_PATH, client.GetInstrumentedHandler(remnantUrl, strLenHandler))
 	http.HandleFunc("/healthz", healthzHandler)
+	http.HandleFunc("/swagger.json", client.GetInstrumentedHandler(remnantUrl, swaggerHandler))
+	http.HandleFunc("/", client.GetInstrumentedHandler(remnantUrl, swaggerHandler))
 
 	fmt.Printf("Starting server on port %s\n", *port)
 	http.ListenAndServe(":"+*port, nil)
